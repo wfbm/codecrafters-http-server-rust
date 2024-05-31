@@ -1,24 +1,22 @@
-// Uncomment this block to pass the first stage
-use std::io::{Read, Write};
+use std::io::Read;
 use std::net::{TcpListener, TcpStream};
-use std::str;
 
-const VALID_ENDPOINTS: &'static [&'static str] = &["/"];
+mod handler;
+mod http;
+mod router;
 
 fn main() {
+    let mut http_router = router::new_router();
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
 
     for stream in listener.incoming() {
         match stream {
-            Ok(mut stream) => {
-                let request = read(&stream);
-                let valid = validate_endpoint(request);
+            Ok(stream) => {
+                let req_str = read(&stream);
+                let request = http::create_request(req_str);
+                let response = http::create_response(stream);
 
-                if valid {
-                    let _ = stream.write_all("HTTP/1.1 200 OK\r\n\r\n".as_bytes());
-                } else {
-                    let _ = stream.write_all("HTTP/1.1 404 Not Found\r\n\r\n".as_bytes());
-                }
+                http_router.resolve_route(request, response);
             }
             Err(e) => {
                 println!("error: {}", e);
@@ -45,17 +43,4 @@ fn read(mut stream: &TcpStream) -> String {
     }
 
     request
-}
-
-fn validate_endpoint(request: String) -> bool {
-    let mut lines = request.split("\r\n");
-
-    if let Some(request_line) = lines.next() {
-        let mut request_parts = request_line.split(" ");
-        let mut path = request_parts.find(|&p| p.starts_with("/")).unwrap_or("");
-
-        return VALID_ENDPOINTS.contains(&mut path);
-    }
-
-    return false;
 }
