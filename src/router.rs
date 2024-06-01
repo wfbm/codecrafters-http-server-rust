@@ -1,7 +1,7 @@
-use std::{collections::HashMap, io::Write};
+use std::collections::HashMap;
 
 use crate::handler;
-use crate::http::{self, Request, Response};
+use crate::http::{Request, Response};
 
 pub struct Router {
     routes: HashMap<String, fn(Request, Response)>,
@@ -58,13 +58,9 @@ impl Router {
         if let Some(handler) = found_route {
             handler(request, response);
         } else {
-            handle_not_found(response);
+            handler::handle_not_found(response);
         }
     }
-}
-
-fn handle_not_found(mut reponse: Response) {
-    let _ = reponse.conn.write_all(http::NOT_FOUND_RESPONSE.as_bytes());
 }
 
 pub fn new_router() -> Router {

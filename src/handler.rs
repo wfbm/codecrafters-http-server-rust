@@ -1,6 +1,5 @@
 use crate::http::{self, Request, Response};
 use crate::router::Router;
-use std::io::Write;
 
 pub fn add_handlers(http_router: &mut Router) {
     http_router.add_route(http::GET, "/", handle_root);
@@ -8,16 +7,16 @@ pub fn add_handlers(http_router: &mut Router) {
 }
 
 fn handle_root(_request: Request, mut response: Response) {
-    let _ = response.conn.write_all(http::OK_RESPONSE.as_bytes());
+    response.ok(None);
 }
 
 fn handle_echo(request: Request, mut response: Response) {
-    let mut response_str = String::new();
-
     let path_var = request.path_vars.get(":text").unwrap();
-    response_str.push_str(http::OK_RESPONSE);
-    response_str.push_str(&path_var);
-    response_str.push_str("\r\n");
 
-    let _ = response.conn.write_all(response_str.as_bytes());
+    response.set_header(String::from("Content-Type"), String::from("text/plain"));
+    response.ok(Some(path_var.clone()));
+}
+
+pub fn handle_not_found(mut response: Response) {
+    response.not_found();
 }

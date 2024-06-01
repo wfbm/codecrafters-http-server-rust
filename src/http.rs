@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Write;
 use std::net::TcpStream;
 
 pub const GET: &str = "GET";
@@ -14,9 +15,6 @@ pub const DELETE: &str = "DELETE";
 pub const OPTIONS: &str = "OPTIONS";
 
 const VALID_VERBS: &'static [&'static str] = &["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
-
-pub const OK_RESPONSE: &str = "HTTP/1.1 200 OK\r\n\r\n";
-pub const NOT_FOUND_RESPONSE: &str = "HTTP/1.1 404 Not Found\r\n\r\n";
 
 pub struct Request {
     pub verb: String,
@@ -72,9 +70,79 @@ where
 }
 
 pub struct Response {
-    pub conn: TcpStream,
+    conn: TcpStream,
+    status_code: u32,
+    status_description: String,
+    headers: HashMap<String, String>,
+    body: Option<String>,
+}
+
+impl Response {
+    pub fn set_status_code(&mut self, status_code: u32) {
+        self.status_code = status_code;
+    }
+
+    pub fn set_status_description(&mut self, status_description: String) {
+        self.status_description = status_description;
+    }
+
+    pub fn set_header(&mut self, key: String, value: String) {
+        self.headers.insert(key, value);
+    }
+
+    pub fn set_body(&mut self, body: Option<String>) {
+        self.body = body;
+    }
+
+    pub fn ok(&mut self, body: Option<String>) {
+        self.set_status_code(200);
+        self.set_status_description(String::from("OK"));
+        self.set_body(body);
+        self.flush();
+    }
+
+    pub fn not_found(&mut self) {
+        self.set_status_code(404);
+        self.set_status_description(String::from("Not Found"));
+        self.flush();
+    }
+
+    pub fn flush(&mut self) {
+        let mut response = String::new();
+        response.push_str("HTTP/1.1 ");
+        response.push_str(&self.status_code.to_string());
+        response.push_str(" ");
+        response.push_str(&self.status_description);
+        response.push_str(&String::from("\r\n"));
+
+        let mut body_content: Option<String> = None;
+
+        if let Some(body) = &self.body {
+            self.headers
+                .insert(String::from("Content-Length"), body.len().to_string());
+            body_content = Some(body.clone());
+        }
+
+        for key in self.headers.keys() {
+            response.push_str(key);
+            response.push_str(": ");
+            response.push_str(self.headers.get(key).unwrap());
+            response.push_str("\r\n");
+        }
+
+        response.push_str("\r\n");
+        response.push_str(&body_content.unwrap_or(String::from("")));
+
+        let _ = self.conn.write_all(response.as_bytes());
+    }
 }
 
 pub fn create_response(stream: TcpStream) -> Response {
-    Response { conn: stream }
+    Response {
+        conn: stream,
+        status_code: 200,
+        status_description: String::from("OK"),
+        headers: HashMap::new(),
+        body: None,
+    }
 }
