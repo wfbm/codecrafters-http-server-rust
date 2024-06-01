@@ -20,7 +20,7 @@ pub struct Request {
     pub verb: String,
     pub path: String,
     pub path_vars: HashMap<String, String>,
-    pub header: HashMap<String, String>,
+    pub headers: HashMap<String, String>,
 }
 
 impl Request {
@@ -37,12 +37,13 @@ impl Request {
 pub fn create_request(req_str: String) -> Request {
     let verb = extract_request_verb(req_str.clone());
     let path = extract_request_path(req_str.clone());
+    let headers = extract_headers_from_request(req_str.clone());
 
     Request {
         verb,
         path,
+        headers,
         path_vars: HashMap::new(),
-        header: HashMap::new(),
     }
 }
 
@@ -67,6 +68,25 @@ where
     }
 
     return path;
+}
+
+fn extract_headers_from_request(req_str: String) -> HashMap<String, String> {
+    let lines = req_str.split("\r\n");
+    let mut headers: HashMap<String, String> = HashMap::new();
+
+    for (i, line) in lines.enumerate() {
+        if i == 0 {
+            continue;
+        }
+
+        let mut parts = line.splitn(2, ':');
+        let key = parts.next().unwrap();
+        let value = parts.next().unwrap_or("");
+
+        headers.insert(key.to_string(), value.trim().to_string());
+    }
+
+    headers
 }
 
 pub struct Response {
