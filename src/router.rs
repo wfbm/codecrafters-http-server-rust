@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::handler;
 use crate::http::{Request, Response};
 
+#[derive(Clone)]
 pub struct Router {
     routes: HashMap<String, fn(Request, Response)>,
 }
