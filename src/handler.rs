@@ -1,5 +1,5 @@
 use crate::http::{self, Request, Response};
-use crate::router::Router;
+use crate::server::Router;
 
 pub fn add_handlers(http_router: &mut Router) {
     http_router.add_route(http::GET, "/", handle_root);

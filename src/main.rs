@@ -1,52 +1,21 @@
-use std::io::Read;
-use std::net::{TcpListener, TcpStream};
+use clap::{arg, Command};
 
 mod handler;
 mod http;
-mod router;
+mod server;
 
 #[tokio::main]
 async fn main() {
-    let http_router = router::new_router();
-    let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
+    let matches = Command::new("server")
+        .version("1.0.0")
+        .about("http server")
+        .arg(arg!(--directory <DIR>))
+        .get_matches();
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                let router = http_router.clone();
-                tokio::spawn(async move { handle_conn(stream, router).await });
-            }
-            Err(e) => {
-                println!("error: {}", e);
-            }
-        }
-    }
-}
+    let empty_dir = String::new();
 
-fn read(mut stream: &TcpStream) -> String {
-    let mut buffer = [0; 512];
-    let mut request = String::new();
+    let dir_arg = matches.get_one::<String>("directory").unwrap_or(&empty_dir);
 
-    loop {
-        let bytes_read = stream.read(&mut buffer).unwrap();
-        if bytes_read == 0 {
-            break;
-        }
-
-        request.push_str(&String::from_utf8_lossy(&buffer[..bytes_read]));
-
-        if request.contains("\r\n\r\n") {
-            break;
-        }
-    }
-
-    request
-}
-
-async fn handle_conn(stream: TcpStream, mut http_router: router::Router) {
-    let req_str = read(&stream);
-    let request = http::create_request(req_str);
-    let response = http::create_response(stream);
-
-    http_router.resolve_route(request, response);
+    let server = server::new_server(dir_arg.to_string());
+    server.start();
 }
