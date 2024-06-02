@@ -19,6 +19,7 @@ const VALID_VERBS: &'static [&'static str] = &["GET", "POST", "PUT", "PATCH", "D
 pub struct Request {
     pub verb: String,
     pub path: String,
+    pub root_dir: Option<String>,
     pub path_vars: HashMap<String, String>,
     pub headers: HashMap<String, String>,
 }
@@ -32,6 +33,10 @@ impl Request {
         println!("{route}");
         route
     }
+
+    pub fn add_root_dir(&mut self, path: Option<String>) {
+        self.root_dir = path;
+    }
 }
 
 pub fn create_request(req_str: String) -> Request {
@@ -43,6 +48,7 @@ pub fn create_request(req_str: String) -> Request {
         verb,
         path,
         headers,
+        root_dir: None,
         path_vars: HashMap::new(),
     }
 }

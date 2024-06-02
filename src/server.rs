@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fs;
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
 
@@ -29,10 +28,14 @@ impl Server {
     }
 }
 
-pub fn new_server(directory: String) -> Server {
+pub fn new_server(mut directory: String) -> Server {
     let mut dir: Option<String> = None;
 
     if !directory.is_empty() {
+        if !directory.ends_with("/") {
+            directory.push_str("/");
+        }
+
         dir = Some(directory);
     }
 
@@ -87,9 +90,11 @@ impl Router {
         println!("added route {}", route_key);
     }
 
-    pub fn resolve_route(&mut self, mut request: Request, response: Response) {
+    pub fn resolve_route(&mut self, mut request: Request, mut response: Response) {
         let mut found_route: Option<fn(Request, Response)> = None;
         let req_route = request.route();
+
+        request.add_root_dir(self.root_dir.clone());
 
         for key in self.routes.keys() {
             let path_parts: Vec<&str> = req_route.split('/').collect();
@@ -124,31 +129,8 @@ impl Router {
         if let Some(handler) = found_route {
             handler(request, response);
         } else {
-            self.resolve_file(request, response);
+            response.not_found();
         }
-    }
-
-    fn resolve_file(&self, request: Request, mut response: Response) {
-        let mut path = String::new();
-        if let Some(request_path) = &self.root_dir {
-            path.push_str(&request_path);
-            path.push_str(&request.path);
-
-            match fs::read_to_string(path) {
-                Ok(content) => {
-                    response.set_header(
-                        "Content-Type".to_string(),
-                        "application/octet-stream".to_string(),
-                    );
-                    response.ok(Some(content));
-                }
-                Err(err) => {
-                    eprintln!("Couldn't retrieve file content {}", err);
-                }
-            }
-        }
-
-        response.not_found();
     }
 }
 
