@@ -20,6 +20,7 @@ pub struct Request {
     pub verb: String,
     pub path: String,
     pub root_dir: Option<String>,
+    pub body: Option<String>,
     pub path_vars: HashMap<String, String>,
     pub headers: HashMap<String, String>,
 }
@@ -43,11 +44,13 @@ pub fn create_request(req_str: String) -> Request {
     let verb = extract_request_verb(req_str.clone());
     let path = extract_request_path(req_str.clone());
     let headers = extract_headers_from_request(req_str.clone());
+    let body = extract_body_from_request(req_str.clone());
 
     Request {
         verb,
         path,
         headers,
+        body,
         root_dir: None,
         path_vars: HashMap::new(),
     }
@@ -95,6 +98,18 @@ fn extract_headers_from_request(req_str: String) -> HashMap<String, String> {
     headers
 }
 
+fn extract_body_from_request(req_str: String) -> Option<String> {
+    let parts: Vec<&str> = req_str.split("\r\n\r\n").collect();
+    let mut body: Option<String> = None;
+
+    if parts.len() == 2 {
+        let part = parts.get(1).unwrap().to_string();
+        body = Some(part);
+    }
+
+    body
+}
+
 pub struct Response {
     conn: TcpStream,
     status_code: u32,
@@ -127,9 +142,22 @@ impl Response {
         self.flush();
     }
 
+    pub fn no_content(&mut self) {
+        self.set_status_code(201);
+        self.set_status_description(String::from("Created"));
+        self.flush();
+    }
+
     pub fn not_found(&mut self) {
         self.set_status_code(404);
         self.set_status_description(String::from("Not Found"));
+        self.flush();
+    }
+
+    pub fn internal_server_error(&mut self, body: Option<String>) {
+        self.set_status_code(500);
+        self.set_status_description(String::from("Internal Server Error"));
+        self.set_body(body);
         self.flush();
     }
 

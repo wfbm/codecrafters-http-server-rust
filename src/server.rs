@@ -58,12 +58,41 @@ fn read(mut stream: &TcpStream) -> String {
 
         request.push_str(&String::from_utf8_lossy(&buffer[..bytes_read]));
 
-        if request.contains("\r\n\r\n") {
+        let req_clone = request.clone();
+        if request.contains("\r\n\r\n") && has_reached_request_end(req_clone) {
             break;
         }
     }
 
     request
+}
+
+fn has_reached_request_end(request: String) -> bool {
+    let content_length_key = "Content-Length: ".to_string();
+    if let Some(cl_pos) = request.find(&content_length_key) {
+        let after_cl = &request[(cl_pos + content_length_key.len())..];
+        if let Some(line_break_pos) = after_cl.find("\r\n") {
+            return has_reached_body_size(request.clone(), after_cl, line_break_pos);
+        }
+    } else {
+        return true;
+    }
+
+    return false;
+}
+
+fn has_reached_body_size(request: String, after_cl: &str, line_break_pos: usize) -> bool {
+    return match after_cl[..line_break_pos].trim().parse::<usize>() {
+        Ok(content_length) => {
+            let splitted: Vec<&str> = request.split("\r\n\r\n").collect();
+
+            splitted.get(1).unwrap().len() >= content_length
+        }
+        Err(err) => {
+            eprintln!("erro: {}", err);
+            true
+        }
+    };
 }
 
 async fn handle_conn(stream: TcpStream, mut http_router: Router) {
