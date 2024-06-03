@@ -12,28 +12,33 @@ pub fn add_handlers(http_router: &mut Router) {
     http_router.add_route(http::POST, "/files/:file_name", handle_create_file);
 }
 
-fn handle_root(_request: Request, mut response: Response) {
-    response.ok(None);
+fn handle_root(request: Request, mut response: Response) {
+    response.ok(request, None);
 }
 
 fn handle_echo(request: Request, mut response: Response) {
-    let path_var = request.path_vars.get(":text").unwrap();
+    let path_vars = request.path_vars.clone();
+    let path_var = path_vars.get(":text").unwrap();
 
     response.set_header(String::from("Content-Type"), String::from("text/plain"));
-    response.ok(Some(path_var.clone()));
+    response.ok(request, Some(path_var.clone()));
 }
 
 fn handle_user_agent(request: Request, mut response: Response) {
-    let user_agent = request.headers.get("User-Agent");
+    let path_vars = request.headers.clone();
+    let user_agent = path_vars.get("User-Agent");
     response.set_header(String::from("Content-Type"), String::from("text/plain"));
-    response.ok(Some(user_agent.unwrap_or(&String::from("")).to_string()));
+    response.ok(
+        request,
+        Some(user_agent.unwrap_or(&String::from("")).to_string()),
+    );
 }
 
 fn handle_file(request: Request, mut response: Response) {
     let mut path = String::new();
     let file_name = request.path_vars.get(":file_name");
 
-    if let Some(request_path) = &request.root_dir {
+    if let Some(request_path) = request.root_dir.clone() {
         path.push_str(&request_path);
         path.push_str(file_name.unwrap());
 
@@ -43,7 +48,8 @@ fn handle_file(request: Request, mut response: Response) {
                     "Content-Type".to_string(),
                     "application/octet-stream".to_string(),
                 );
-                response.ok(Some(content));
+                response.ok(request, Some(content));
+                return;
             }
             Err(err) => {
                 eprintln!("Couldn't retrieve file content {}", err);
@@ -51,21 +57,21 @@ fn handle_file(request: Request, mut response: Response) {
         }
     }
 
-    response.not_found();
+    response.not_found(request);
 }
 
 fn handle_create_file(request: Request, mut response: Response) {
     let file_name = request.path_vars.get(":file_name");
-    if let Some(mut full_path) = request.root_dir {
+    if let Some(mut full_path) = request.root_dir.clone() {
         full_path.push_str(file_name.unwrap());
         match File::create(full_path) {
             Ok(mut file) => {
-                let _ = file.write_all(request.body.unwrap().as_bytes());
-                response.no_content();
+                let _ = file.write_all(request.body.clone().unwrap().as_bytes());
+                response.no_content(request);
             }
             Err(err) => {
                 eprintln!("error creating file {}", err);
-                response.internal_server_error(None);
+                response.internal_server_error(request, None);
             }
         }
     }

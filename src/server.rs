@@ -158,7 +158,7 @@ impl Router {
         if let Some(handler) = found_route {
             handler(request, response);
         } else {
-            response.not_found();
+            response.not_found(request);
         }
     }
 }

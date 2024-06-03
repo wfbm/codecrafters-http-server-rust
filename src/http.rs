@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::net::TcpStream;
 
+use crate::encode;
+
 pub const GET: &str = "GET";
 #[allow(dead_code)]
 pub const POST: &str = "POST";
@@ -135,33 +137,33 @@ impl Response {
         self.body = body;
     }
 
-    pub fn ok(&mut self, body: Option<String>) {
+    pub fn ok(&mut self, request: Request, body: Option<String>) {
         self.set_status_code(200);
         self.set_status_description(String::from("OK"));
         self.set_body(body);
-        self.flush();
+        self.flush(request);
     }
 
-    pub fn no_content(&mut self) {
+    pub fn no_content(&mut self, request: Request) {
         self.set_status_code(201);
         self.set_status_description(String::from("Created"));
-        self.flush();
+        self.flush(request);
     }
 
-    pub fn not_found(&mut self) {
+    pub fn not_found(&mut self, request: Request) {
         self.set_status_code(404);
         self.set_status_description(String::from("Not Found"));
-        self.flush();
+        self.flush(request);
     }
 
-    pub fn internal_server_error(&mut self, body: Option<String>) {
+    pub fn internal_server_error(&mut self, request: Request, body: Option<String>) {
         self.set_status_code(500);
         self.set_status_description(String::from("Internal Server Error"));
         self.set_body(body);
-        self.flush();
+        self.flush(request);
     }
 
-    pub fn flush(&mut self) {
+    pub fn flush(&mut self, request: Request) {
         let mut response = String::new();
         response.push_str("HTTP/1.1 ");
         response.push_str(&self.status_code.to_string());
@@ -175,6 +177,19 @@ impl Response {
             self.headers
                 .insert(String::from("Content-Length"), body.len().to_string());
             body_content = Some(body.clone());
+        }
+
+        let accept_encoding = request.headers.get("Accept-Encoding");
+
+        match encode::new_encoder(accept_encoding.unwrap_or(&String::from(""))) {
+            Ok(encoder) => {
+                self.headers
+                    .insert(String::from("Content-Encoding"), String::from("gzip"));
+                body_content = Some(encoder.encode(body_content.unwrap_or("".to_string())));
+            }
+            Err(err) => {
+                eprintln!("{err}");
+            }
         }
 
         for key in self.headers.keys() {

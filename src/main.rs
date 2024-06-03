@@ -1,5 +1,6 @@
 use clap::{arg, Command};
 
+mod encode;
 mod handler;
 mod http;
 mod server;
