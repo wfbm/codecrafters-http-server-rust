@@ -179,18 +179,7 @@ impl Response {
             body_content = Some(body.clone());
         }
 
-        let accept_encoding = request.headers.get("Accept-Encoding");
-
-        match encode::new_encoder(accept_encoding.unwrap_or(&String::from(""))) {
-            Ok(encoder) => {
-                self.headers
-                    .insert(String::from("Content-Encoding"), String::from("gzip"));
-                body_content = Some(encoder.encode(body_content.unwrap_or("".to_string())));
-            }
-            Err(err) => {
-                eprintln!("{err}");
-            }
-        }
+        let body_content = self.encode_if_needed(body_content, request);
 
         for key in self.headers.keys() {
             response.push_str(key);
@@ -203,6 +192,34 @@ impl Response {
         response.push_str(&body_content.unwrap_or(String::from("")));
 
         let _ = self.conn.write_all(response.as_bytes());
+    }
+
+    fn encode_if_needed(
+        &mut self,
+        mut content: Option<String>,
+        request: Request,
+    ) -> Option<String> {
+        let accept_encoding = request.headers.get("Accept-Encoding");
+
+        if let Some(encoding_list) = accept_encoding {
+            let encoding_options = encoding_list.split(",");
+
+            for encoding in encoding_options {
+                match encode::new_encoder(encoding.trim()) {
+                    Ok(encoder) => {
+                        self.headers
+                            .insert(String::from("Content-Encoding"), String::from("gzip"));
+                        content = Some(encoder.encode(content.unwrap_or("".to_string())));
+                        break;
+                    }
+                    Err(err) => {
+                        eprintln!("{err}");
+                    }
+                }
+            }
+        }
+
+        content
     }
 }
 
