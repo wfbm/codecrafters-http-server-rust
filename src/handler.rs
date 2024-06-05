@@ -1,8 +1,15 @@
 use std::fs::{self, File};
 use std::io::Write;
+use std::sync::Arc;
 
 use crate::http::{self, Request, Response};
 use crate::server::Router;
+
+pub type AsyncHandler = Arc<
+    dyn Fn(Request, Response) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        + Send
+        + Sync,
+>;
 
 pub fn add_handlers(http_router: &mut Router) {
     http_router.add_route(http::GET, "/", handle_root);
@@ -12,29 +19,31 @@ pub fn add_handlers(http_router: &mut Router) {
     http_router.add_route(http::POST, "/files/:file_name", handle_create_file);
 }
 
-fn handle_root(request: Request, mut response: Response) {
-    response.ok(request, None);
+async fn handle_root(request: Request, mut response: Response) {
+    response.ok(request, None).await;
 }
 
-fn handle_echo(request: Request, mut response: Response) {
+async fn handle_echo(request: Request, mut response: Response) {
     let path_vars = request.path_vars.clone();
     let path_var = path_vars.get(":text").unwrap();
 
     response.set_header(String::from("Content-Type"), String::from("text/plain"));
-    response.ok(request, Some(path_var.clone()));
+    response.ok(request, Some(path_var.clone())).await;
 }
 
-fn handle_user_agent(request: Request, mut response: Response) {
+async fn handle_user_agent(request: Request, mut response: Response) {
     let path_vars = request.headers.clone();
     let user_agent = path_vars.get("User-Agent");
     response.set_header(String::from("Content-Type"), String::from("text/plain"));
-    response.ok(
-        request,
-        Some(user_agent.unwrap_or(&String::from("")).to_string()),
-    );
+    response
+        .ok(
+            request,
+            Some(user_agent.unwrap_or(&String::from("")).to_string()),
+        )
+        .await;
 }
 
-fn handle_file(request: Request, mut response: Response) {
+async fn handle_file(request: Request, mut response: Response) {
     let mut path = String::new();
     let file_name = request.path_vars.get(":file_name");
 
@@ -48,7 +57,7 @@ fn handle_file(request: Request, mut response: Response) {
                     "Content-Type".to_string(),
                     "application/octet-stream".to_string(),
                 );
-                response.ok(request, Some(content));
+                response.ok(request, Some(content)).await;
                 return;
             }
             Err(err) => {
@@ -57,21 +66,21 @@ fn handle_file(request: Request, mut response: Response) {
         }
     }
 
-    response.not_found(request);
+    response.not_found(request).await;
 }
 
-fn handle_create_file(request: Request, mut response: Response) {
+async fn handle_create_file(request: Request, mut response: Response) {
     let file_name = request.path_vars.get(":file_name");
     if let Some(mut full_path) = request.root_dir.clone() {
         full_path.push_str(file_name.unwrap());
         match File::create(full_path) {
             Ok(mut file) => {
                 let _ = file.write_all(request.body.clone().unwrap().as_bytes());
-                response.no_content(request);
+                response.no_content(request).await;
             }
             Err(err) => {
                 eprintln!("error creating file {}", err);
-                response.internal_server_error(request, None);
+                response.internal_server_error(request, None).await;
             }
         }
     }

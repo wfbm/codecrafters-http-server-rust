@@ -14,9 +14,8 @@ async fn main() {
         .get_matches();
 
     let empty_dir = String::new();
-
     let dir_arg = matches.get_one::<String>("directory").unwrap_or(&empty_dir);
 
     let server = server::new_server(dir_arg.to_string());
-    server.start();
+    server.start().await;
 }

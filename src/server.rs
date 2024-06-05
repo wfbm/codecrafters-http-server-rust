@@ -1,8 +1,9 @@
 use std::collections::HashMap;
-use std::io::Read;
-use std::net::{TcpListener, TcpStream};
+use std::sync::Arc;
+use tokio::io::AsyncReadExt;
+use tokio::net::{TcpListener, TcpStream};
 
-use crate::handler;
+use crate::handler::{self, AsyncHandler};
 use crate::http;
 use crate::http::{Request, Response};
 
@@ -11,12 +12,14 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn start(&self) {
-        let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
+    pub async fn start(&self) {
+        let listener = TcpListener::bind("127.0.0.1:4221")
+            .await
+            .expect("unable to bind to address");
 
-        for stream in listener.incoming() {
-            match stream {
-                Ok(stream) => {
+        loop {
+            match listener.accept().await {
+                Ok((stream, _)) => {
                     let router = self.router.clone();
                     tokio::spawn(async move { handle_conn(stream, router).await });
                 }
@@ -29,15 +32,15 @@ impl Server {
 }
 
 pub fn new_server(mut directory: String) -> Server {
-    let mut dir: Option<String> = None;
-
-    if !directory.is_empty() {
+    let dir = if !directory.is_empty() {
         if !directory.ends_with("/") {
             directory.push_str("/");
         }
 
-        dir = Some(directory);
-    }
+        Some(directory)
+    } else {
+        None
+    };
 
     let http_router = new_router(dir.clone());
 
@@ -46,12 +49,12 @@ pub fn new_server(mut directory: String) -> Server {
     }
 }
 
-fn read(mut stream: &TcpStream) -> String {
+async fn read(stream: &mut TcpStream) -> Result<String, std::io::Error> {
     let mut buffer = [0; 512];
     let mut request = String::new();
 
     loop {
-        let bytes_read = stream.read(&mut buffer).unwrap();
+        let bytes_read = stream.read(&mut buffer).await?;
         if bytes_read == 0 {
             break;
         }
@@ -64,7 +67,7 @@ fn read(mut stream: &TcpStream) -> String {
         }
     }
 
-    request
+    Ok(request)
 }
 
 fn has_reached_request_end(request: String) -> bool {
@@ -95,32 +98,42 @@ fn has_reached_body_size(request: String, after_cl: &str, line_break_pos: usize)
     };
 }
 
-async fn handle_conn(stream: TcpStream, mut http_router: Router) {
-    let req_str = read(&stream);
-    let request = http::create_request(req_str);
-    let response = http::create_response(stream);
-
-    http_router.resolve_route(request, response);
+async fn handle_conn(mut stream: TcpStream, mut http_router: Router) {
+    match read(&mut stream).await {
+        Ok(req_str) => {
+            let request = http::create_request(req_str);
+            let response = http::create_response(stream);
+            http_router.resolve_route(request, response).await;
+        }
+        Err(err) => eprintln!("error handling connection {}", err),
+    }
 }
 
 #[derive(Clone)]
 pub struct Router {
     root_dir: Option<String>,
-    routes: HashMap<String, fn(Request, Response)>,
+    routes: HashMap<String, AsyncHandler>,
 }
 
 impl Router {
-    pub fn add_route(&mut self, verb: &str, path: &str, handler: fn(Request, Response)) {
+    pub fn add_route<F, Fut>(&mut self, verb: &str, path: &str, handler: F)
+    where
+        F: Fn(Request, Response) -> Fut + 'static + Send + Sync,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
         let mut route_key = String::new();
         route_key.push_str(verb);
         route_key.push_str(" ");
         route_key.push_str(path);
-        self.routes.insert(route_key.clone(), handler);
+        self.routes.insert(
+            route_key.clone(),
+            Arc::new(move |req, res| Box::pin(handler(req, res))),
+        );
         println!("added route {}", route_key);
     }
 
-    pub fn resolve_route(&mut self, mut request: Request, mut response: Response) {
-        let mut found_route: Option<fn(Request, Response)> = None;
+    pub async fn resolve_route(&mut self, mut request: Request, mut response: Response) {
+        let mut found_route: Option<AsyncHandler> = None;
         let req_route = request.route();
 
         request.add_root_dir(self.root_dir.clone());
@@ -150,15 +163,15 @@ impl Router {
             }
 
             if found {
-                found_route = self.routes.get(key).copied();
+                found_route = self.routes.get(key).cloned();
                 break;
             }
         }
 
         if let Some(handler) = found_route {
-            handler(request, response);
+            handler(request, response).await;
         } else {
-            response.not_found(request);
+            response.not_found(request).await;
         }
     }
 }

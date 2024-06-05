@@ -1,11 +1,10 @@
 use std::collections::HashMap;
-use std::io::Write;
-use std::net::TcpStream;
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
 
 use crate::encode;
 
 pub const GET: &str = "GET";
-#[allow(dead_code)]
 pub const POST: &str = "POST";
 #[allow(dead_code)]
 pub const PUT: &str = "PUT";
@@ -33,7 +32,6 @@ impl Request {
         route.push_str(&self.verb);
         route.push_str(" ");
         route.push_str(&self.path);
-        println!("{route}");
         route
     }
 
@@ -137,69 +135,95 @@ impl Response {
         self.body = body;
     }
 
-    pub fn ok(&mut self, request: Request, body: Option<String>) {
+    pub async fn ok(&mut self, request: Request, body: Option<String>) {
         self.set_status_code(200);
         self.set_status_description(String::from("OK"));
         self.set_body(body);
-        self.flush(request);
+        self.flush(request).await;
     }
 
-    pub fn no_content(&mut self, request: Request) {
+    pub async fn no_content(&mut self, request: Request) {
         self.set_status_code(201);
         self.set_status_description(String::from("Created"));
-        self.flush(request);
+        self.flush(request).await;
     }
 
-    pub fn not_found(&mut self, request: Request) {
+    pub async fn not_found(&mut self, request: Request) {
         self.set_status_code(404);
         self.set_status_description(String::from("Not Found"));
-        self.flush(request);
+        self.flush(request).await;
     }
 
-    pub fn internal_server_error(&mut self, request: Request, body: Option<String>) {
+    pub async fn internal_server_error(&mut self, request: Request, body: Option<String>) {
         self.set_status_code(500);
         self.set_status_description(String::from("Internal Server Error"));
         self.set_body(body);
-        self.flush(request);
+        self.flush(request).await;
     }
 
-    pub fn flush(&mut self, request: Request) {
+    pub async fn flush(&mut self, request: Request) {
+        let response_line = self.create_response_line();
+        let body_content = self.create_response_body(request);
+        let headers = self.create_response_headers();
+
+        let mut response = String::new();
+        response.push_str(&response_line);
+        response.push_str(&headers);
+
+        let mut response_buffer = response.as_bytes().to_vec();
+
+        if let Some(body_response) = body_content {
+            response_buffer.extend_from_slice(&body_response);
+        }
+
+        let _ = self.conn.write_all(&response_buffer).await;
+    }
+
+    fn create_response_line(&self) -> String {
         let mut response = String::new();
         response.push_str("HTTP/1.1 ");
         response.push_str(&self.status_code.to_string());
         response.push_str(" ");
         response.push_str(&self.status_description);
         response.push_str(&String::from("\r\n"));
-
-        let mut body_content: Option<String> = None;
-
-        if let Some(body) = &self.body {
-            self.headers
-                .insert(String::from("Content-Length"), body.len().to_string());
-            body_content = Some(body.clone());
-        }
-
-        let body_content = self.encode_if_needed(body_content, request);
-
-        for key in self.headers.keys() {
-            response.push_str(key);
-            response.push_str(": ");
-            response.push_str(self.headers.get(key).unwrap());
-            response.push_str("\r\n");
-        }
-
-        response.push_str("\r\n");
-        response.push_str(&body_content.unwrap_or(String::from("")));
-
-        let _ = self.conn.write_all(response.as_bytes());
+        response
     }
 
-    fn encode_if_needed(
-        &mut self,
-        mut content: Option<String>,
-        request: Request,
-    ) -> Option<String> {
+    fn create_response_body(&mut self, request: Request) -> Option<Vec<u8>> {
+        let mut body_content: Option<Vec<u8>> = None;
+
+        if let Some(body) = &self.body {
+            body_content = self.encode_body_if_needed(body.clone(), request);
+            self.headers.insert(
+                String::from("Content-Length"),
+                body_content.clone().unwrap().len().to_string(),
+            );
+        }
+
+        body_content
+    }
+
+    fn create_response_headers(&self) -> String {
+        let mut headers = String::new();
+
+        for key in self.headers.keys() {
+            headers.push_str(key);
+            headers.push_str(": ");
+            headers.push_str(self.headers.get(key).unwrap());
+            headers.push_str("\r\n");
+        }
+
+        headers.push_str("\r\n");
+        headers
+    }
+
+    fn encode_body_if_needed(&mut self, content: String, request: Request) -> Option<Vec<u8>> {
+        if content.is_empty() {
+            return None;
+        }
+
         let accept_encoding = request.headers.get("Accept-Encoding");
+        let buffer: Vec<u8> = content.as_bytes().to_vec();
 
         if let Some(encoding_list) = accept_encoding {
             let encoding_options = encoding_list.split(",");
@@ -207,10 +231,11 @@ impl Response {
             for encoding in encoding_options {
                 match encode::new_encoder(encoding.trim()) {
                     Ok(encoder) => {
-                        self.headers
-                            .insert(String::from("Content-Encoding"), String::from("gzip"));
-                        content = Some(encoder.encode(content.unwrap_or("".to_string())));
-                        break;
+                        self.headers.insert(
+                            String::from("Content-Encoding"),
+                            encoding.trim().to_string(),
+                        );
+                        return Some(encoder.encode(content));
                     }
                     Err(err) => {
                         eprintln!("{err}");
@@ -219,7 +244,7 @@ impl Response {
             }
         }
 
-        content
+        Some(buffer)
     }
 }
 
